@@ -270,35 +270,46 @@ client.on('messageCreate', async message => {
 
             // Using the new more stable pollinations endpoint with Flux model for better results
             const seed = Math.floor(Math.random() * 1000000);
-            const imageUrl = `https://pollinations.ai/p/${encodeURIComponent(englishPrompt)}?width=1024&height=1024&seed=${seed}&model=flux&nologo=true`;
+            let imageUrl = `https://pollinations.ai/p/${encodeURIComponent(englishPrompt)}?width=1024&height=1024&seed=${seed}&model=flux&nologo=true`;
             
-            console.log(`[AI] Generating: ${imageUrl}`);
+            console.log(`[AI] Generating (Primary): ${imageUrl}`);
 
             let imageRes;
             try {
                 imageRes = await axios.get(imageUrl, { 
                     responseType: 'arraybuffer',
                     headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-                    timeout: 60000 // 60 seconds timeout for image gen
+                    timeout: 45000 // 45 seconds for first try
                 });
-            } catch (imgError) {
-                console.error("Image gen error:", imgError.message);
-                if (imgError.response && imgError.response.status === 429) {
-                    await waitMessage.edit({ content: '❌ **AI Server is busy (Queue Full). Please try again in 30 seconds.**' }).catch(()=>{});
-                } else if (imgError.code === 'ECONNABORTED') {
-                    await waitMessage.edit({ content: '❌ **The AI took too long to respond. Please try again with a simpler prompt.**' }).catch(()=>{});
-                } else {
-                    await waitMessage.edit({ content: '❌ **Error connecting to AI service. Please try again later.**' }).catch(()=>{});
-                }
-                return;
-            }
 
-            // Verify if we actually got an image
-            const contentType = imageRes.headers['content-type'];
-            if (!contentType || !contentType.startsWith('image/')) {
-                console.error("[AI] Invalid content type received:", contentType);
-                await waitMessage.edit({ content: '❌ **The AI service returned an invalid response. Please try again with a different prompt.**' }).catch(()=>{});
-                return;
+                // Check if primary failed (not an image)
+                const contentType = imageRes.headers['content-type'];
+                if (!contentType || !contentType.startsWith('image/')) {
+                    throw new Error("Primary model returned non-image response");
+                }
+            } catch (primaryError) {
+                console.warn("[AI] Primary model failed or timed out, trying fallback...", primaryError.message);
+                
+                // FALLBACK: Use more stable model or generic endpoint
+                imageUrl = `https://pollinations.ai/p/${encodeURIComponent(englishPrompt)}?width=1024&height=1024&seed=${seed}&nologo=true&enhance=true`;
+                console.log(`[AI] Generating (Fallback): ${imageUrl}`);
+                
+                try {
+                    imageRes = await axios.get(imageUrl, { 
+                        responseType: 'arraybuffer',
+                        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+                        timeout: 30000
+                    });
+                    
+                    const contentTypeFallback = imageRes.headers['content-type'];
+                    if (!contentTypeFallback || !contentTypeFallback.startsWith('image/')) {
+                        throw new Error("Fallback model also failed");
+                    }
+                } catch (fallbackError) {
+                    console.error("[AI] Both models failed:", fallbackError.message);
+                    await waitMessage.edit({ content: '❌ **AI service is currently overloaded. Please try again in 1 minute.**' }).catch(()=>{});
+                    return;
+                }
             }
 
             const attachment = new AttachmentBuilder(Buffer.from(imageRes.data), { name: 'image.png' });
