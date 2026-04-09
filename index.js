@@ -293,7 +293,15 @@ client.on('messageCreate', async message => {
                 return;
             }
 
-            const attachment = new AttachmentBuilder(Buffer.from(imageRes.data), { name: 'generation.png' });
+            // Verify if we actually got an image
+            const contentType = imageRes.headers['content-type'];
+            if (!contentType || !contentType.startsWith('image/')) {
+                console.error("[AI] Invalid content type received:", contentType);
+                await waitMessage.edit({ content: '❌ **The AI service returned an invalid response. Please try again with a different prompt.**' }).catch(()=>{});
+                return;
+            }
+
+            const attachment = new AttachmentBuilder(Buffer.from(imageRes.data), { name: 'image.png' });
 
             // Truncate URL for button if it's too long (Discord limit is 512)
             let buttonUrl = imageUrl;
@@ -306,7 +314,7 @@ client.on('messageCreate', async message => {
                 .setAuthor({ name: 'BlueWillow', iconURL: 'https://i.imgur.com/K1R9JvB.png' })
                 .setTitle(`"${prompt.length > 250 ? prompt.substring(0, 247) + '...' : prompt}"`)
                 .setDescription('Get your result in GOATED AI Studio for free')
-                .setImage('attachment://generation.png')
+                .setImage('attachment://image.png')
                 .setFooter({ text: `Requested by ${message.author.username}`, iconURL: message.author.displayAvatarURL() })
                 .setTimestamp();
 
