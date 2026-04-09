@@ -268,49 +268,59 @@ client.on('messageCreate', async message => {
                 // Fallback to original prompt if translation fails
             }
 
+            // Sanitize englishPrompt for URL (remove special quotes and dashes that can break APIs)
+            const cleanPrompt = englishPrompt
+                .replace(/[\u201C\u201D]/g, '"') // Smart quotes
+                .replace(/[\u2018\u2019]/g, "'") // Smart apostrophes
+                .replace(/\u2013|\u2014/g, '-')  // Em/En dashes
+                .replace(/\u2011/g, '-');        // Non-breaking hyphen
+
             // Using the new more stable pollinations endpoint with Flux model for better results
             const seed = Math.floor(Math.random() * 1000000);
-            let imageUrl = `https://pollinations.ai/p/${encodeURIComponent(englishPrompt)}?width=1024&height=1024&seed=${seed}&model=flux&nologo=true`;
-            
-            console.log(`[AI] Generating (Primary - Flux): ${imageUrl}`);
-
-            let imageRes;
             const headers = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' };
+            
+            let imageRes;
+            let usedUrl;
+            let modelUsed = "";
 
             try {
                 // TRY 1: FLUX (High Quality)
-                imageRes = await axios.get(imageUrl, { responseType: 'arraybuffer', headers, timeout: 50000 });
-                if (!imageRes.headers['content-type']?.startsWith('image/')) throw new Error("Not an image");
+                usedUrl = `https://pollinations.ai/p/${encodeURIComponent(cleanPrompt)}?width=1024&height=1024&seed=${seed}&model=flux&nologo=true`;
+                console.log(`[AI] Generating (Try 1 - Flux)...`);
+                imageRes = await axios.get(usedUrl, { responseType: 'arraybuffer', headers, timeout: 50000 });
+                if (!imageRes.headers['content-type']?.startsWith('image/')) throw new Error("Invalid Content");
+                modelUsed = "Flux";
             } catch (e1) {
                 console.warn("[AI] Flux failed, trying Stable Default...");
-                
-                // TRY 2: STABLE DEFAULT
-                imageUrl = `https://pollinations.ai/p/${encodeURIComponent(englishPrompt)}?width=1024&height=1024&seed=${seed}&nologo=true`;
                 try {
-                    imageRes = await axios.get(imageUrl, { responseType: 'arraybuffer', headers, timeout: 40000 });
-                    if (!imageRes.headers['content-type']?.startsWith('image/')) throw new Error("Not an image");
+                    // TRY 2: STABLE DEFAULT
+                    usedUrl = `https://pollinations.ai/p/${encodeURIComponent(cleanPrompt)}?width=1024&height=1024&seed=${seed}&nologo=true`;
+                    imageRes = await axios.get(usedUrl, { responseType: 'arraybuffer', headers, timeout: 40000 });
+                    if (!imageRes.headers['content-type']?.startsWith('image/')) throw new Error("Invalid Content");
+                    modelUsed = "Stable";
                 } catch (e2) {
                     console.warn("[AI] Stable failed, trying Ultra-Fast Turbo...");
-                    
-                    // TRY 3: TURBO (Last Resort)
-                    imageUrl = `https://pollinations.ai/p/${encodeURIComponent(englishPrompt)}?width=1024&height=1024&seed=${seed}&model=turbo&nologo=true`;
                     try {
-                        imageRes = await axios.get(imageUrl, { responseType: 'arraybuffer', headers, timeout: 30000 });
-                        if (!imageRes.headers['content-type']?.startsWith('image/')) throw new Error("Not an image");
+                        // TRY 3: TURBO (Last Resort)
+                        usedUrl = `https://pollinations.ai/p/${encodeURIComponent(cleanPrompt)}?width=1024&height=1024&seed=${seed}&model=turbo&nologo=true`;
+                        imageRes = await axios.get(usedUrl, { responseType: 'arraybuffer', headers, timeout: 30000 });
+                        if (!imageRes.headers['content-type']?.startsWith('image/')) throw new Error("Invalid Content");
+                        modelUsed = "Turbo";
                     } catch (e3) {
                         console.error("[AI] All models failed.");
-                        await waitMessage.edit({ content: '❌ **All AI models are currently busy. Try a shorter prompt or wait a moment.**' }).catch(()=>{});
+                        await waitMessage.edit({ content: '❌ **All AI models are currently busy or prompt is too complex. Try a shorter prompt.**' }).catch(()=>{});
                         return;
                     }
                 }
             }
 
+            console.log(`[AI] Success! Image generated using ${modelUsed} model.`);
             const attachment = new AttachmentBuilder(Buffer.from(imageRes.data), { name: 'image.png' });
 
             // Truncate URL for button if it's too long (Discord limit is 512)
-            let buttonUrl = imageUrl;
+            let buttonUrl = usedUrl;
             if (buttonUrl.length > 510) {
-                buttonUrl = `https://pollinations.ai/p/${encodeURIComponent(englishPrompt.substring(0, 200))}`;
+                buttonUrl = `https://pollinations.ai/p/${encodeURIComponent(cleanPrompt.substring(0, 200))}`;
             }
 
             const imagineEmbed = new EmbedBuilder()
