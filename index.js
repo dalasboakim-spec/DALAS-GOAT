@@ -268,12 +268,8 @@ client.on('messageCreate', async message => {
                 // Fallback to original prompt if translation fails
             }
 
-            // Sanitize englishPrompt for URL (remove special quotes and dashes that can break APIs)
-            const cleanPrompt = englishPrompt
-                .replace(/[\u201C\u201D]/g, '"') // Smart quotes
-                .replace(/[\u2018\u2019]/g, "'") // Smart apostrophes
-                .replace(/\u2013|\u2014/g, '-')  // Em/En dashes
-                .replace(/\u2011/g, '-');        // Non-breaking hyphen
+            // STRIP ALL NON-ASCII characters to prevent URL issues
+            const cleanPrompt = englishPrompt.replace(/[^\x00-\x7F]/g, " ").trim();
 
             const seed = Math.floor(Math.random() * 1000000);
             const headers = { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' };
@@ -285,33 +281,37 @@ client.on('messageCreate', async message => {
             try {
                 // TRY 1: New Unified API (Flux)
                 usedUrl = `https://gen.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?width=1024&height=1024&seed=${seed}&model=flux&nologo=true`;
-                console.log(`[AI] Generating (Try 1 - Gen API)...`);
-                imageRes = await axios.get(usedUrl, { responseType: 'arraybuffer', headers, timeout: 50000 });
+                console.log(`[AI] Generating (Try 1 - Flux): ${usedUrl}`);
+                imageRes = await axios.get(usedUrl, { responseType: 'arraybuffer', headers, timeout: 60000 });
                 if (!imageRes.headers['content-type']?.startsWith('image/')) throw new Error("Invalid Content");
                 modelUsed = "Flux (Unified)";
             } catch (e1) {
-                console.warn("[AI] Try 1 failed, trying Legacy API with shorter prompt...");
+                console.warn("[AI] Try 1 failed, trying Legacy API...");
+                await waitMessage.edit({ content: '⏳ **Flux is busy, trying a more stable model (Retry 1)...**' }).catch(()=>{});
+                
                 try {
-                    // TRY 2: Legacy API - Shortening prompt to bypass some filters/limits
-                    const shortPrompt = cleanPrompt.substring(0, 300);
-                    usedUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(shortPrompt)}?width=1024&height=1024&seed=${seed}&nologo=true`;
-                    console.log(`[AI] Generating (Try 2 - Legacy API)...`);
-                    imageRes = await axios.get(usedUrl, { responseType: 'arraybuffer', headers, timeout: 40000 });
+                    // TRY 2: Legacy API - Shortening prompt + No size params for better speed/stability
+                    const shortPrompt = cleanPrompt.substring(0, 400);
+                    usedUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(shortPrompt)}?seed=${seed}&nologo=true`;
+                    console.log(`[AI] Generating (Try 2 - Legacy): ${usedUrl}`);
+                    imageRes = await axios.get(usedUrl, { responseType: 'arraybuffer', headers, timeout: 45000 });
                     if (!imageRes.headers['content-type']?.startsWith('image/')) throw new Error("Invalid Content");
                     modelUsed = "Stable (Legacy)";
                 } catch (e2) {
-                    console.warn("[AI] Try 2 failed, trying Stable API (No Params)...");
+                    console.warn("[AI] Try 2 failed, trying Simple API...");
+                    await waitMessage.edit({ content: '⏳ **Stable is busy, trying fast fallback (Retry 2)...**' }).catch(()=>{});
+                    
                     try {
-                        // TRY 3: Simple Endpoint (No params, just prompt)
+                        // TRY 3: Simple Endpoint (Very reliable)
                         const superShortPrompt = cleanPrompt.substring(0, 200);
                         usedUrl = `https://pollinations.ai/p/${encodeURIComponent(superShortPrompt)}?seed=${seed}`;
-                        console.log(`[AI] Generating (Try 3 - Simple API)...`);
-                        imageRes = await axios.get(usedUrl, { responseType: 'arraybuffer', headers, timeout: 30000 });
+                        console.log(`[AI] Generating (Try 3 - Simple): ${usedUrl}`);
+                        imageRes = await axios.get(usedUrl, { responseType: 'arraybuffer', headers, timeout: 35000 });
                         if (!imageRes.headers['content-type']?.startsWith('image/')) throw new Error("Invalid Content");
                         modelUsed = "Turbo (Simple)";
                     } catch (e3) {
                         console.error("[AI] All models failed.");
-                        await waitMessage.edit({ content: '❌ **All AI models are currently busy or your prompt is being blocked by filters. Try a different/shorter description.**' }).catch(()=>{});
+                        await waitMessage.edit({ content: '❌ **All AI models are currently busy or prompt is too complex. Try a shorter prompt later.**' }).catch(()=>{});
                         return;
                     }
                 }
