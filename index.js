@@ -255,26 +255,40 @@ client.on('messageCreate', async message => {
             let englishPrompt = prompt;
             try {
                 const translationPrompt = `Translate the following Moroccan Darija/Arabic phrase into a precise, descriptive image generation prompt in English. Ensure "dari" or "derri" is translated as "boy" and NOT as "house". Only return the English text: "${prompt}"`;
-                const transRes = await axios.get(`https://text.pollinations.ai/prompt/${encodeURIComponent(translationPrompt)}`);
+                const transRes = await axios.get(`https://text.pollinations.ai/prompt/${encodeURIComponent(translationPrompt)}`, {
+                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+                    timeout: 10000
+                });
                 if (transRes.data && transRes.data.length < 1000) {
                     englishPrompt = transRes.data.trim();
                     console.log(`[AI] Translated: "${prompt}" -> "${englishPrompt}"`);
                 }
             } catch (e) {
                 console.error("Translation failed:", e.message);
+                // Fallback to original prompt if translation fails
             }
 
-            const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(englishPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 100000)}&enhance=true`;
+            // Using the new more stable pollinations endpoint with Flux model for better results
+            const seed = Math.floor(Math.random() * 1000000);
+            const imageUrl = `https://pollinations.ai/p/${encodeURIComponent(englishPrompt)}?width=1024&height=1024&seed=${seed}&model=flux&nologo=true`;
             
+            console.log(`[AI] Generating: ${imageUrl}`);
+
             let imageRes;
             try {
-                imageRes = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+                imageRes = await axios.get(imageUrl, { 
+                    responseType: 'arraybuffer',
+                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+                    timeout: 60000 // 60 seconds timeout for image gen
+                });
             } catch (imgError) {
                 console.error("Image gen error:", imgError.message);
                 if (imgError.response && imgError.response.status === 429) {
-                    await waitMessage.edit({ content: '❌ **AI Server is busy (Queue Full). Please try again in secondary.**' }).catch(()=>{});
+                    await waitMessage.edit({ content: '❌ **AI Server is busy (Queue Full). Please try again in 30 seconds.**' }).catch(()=>{});
+                } else if (imgError.code === 'ECONNABORTED') {
+                    await waitMessage.edit({ content: '❌ **The AI took too long to respond. Please try again with a simpler prompt.**' }).catch(()=>{});
                 } else {
-                    await waitMessage.edit({ content: '❌ **Error connecting to AI service.**' }).catch(()=>{});
+                    await waitMessage.edit({ content: '❌ **Error connecting to AI service. Please try again later.**' }).catch(()=>{});
                 }
                 return;
             }
@@ -290,7 +304,7 @@ client.on('messageCreate', async message => {
             const imagineEmbed = new EmbedBuilder()
                 .setColor('#CEFF00') 
                 .setAuthor({ name: 'BlueWillow', iconURL: 'https://i.imgur.com/K1R9JvB.png' })
-                .setTitle(`"${prompt}"`)
+                .setTitle(`"${prompt.length > 250 ? prompt.substring(0, 247) + '...' : prompt}"`)
                 .setDescription('Get your result in GOATED AI Studio for free')
                 .setImage('attachment://generation.png')
                 .setFooter({ text: `Requested by ${message.author.username}`, iconURL: message.author.displayAvatarURL() })
