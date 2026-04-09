@@ -275,46 +275,49 @@ client.on('messageCreate', async message => {
                 .replace(/\u2013|\u2014/g, '-')  // Em/En dashes
                 .replace(/\u2011/g, '-');        // Non-breaking hyphen
 
-            // Using the new more stable pollinations endpoint with Flux model for better results
             const seed = Math.floor(Math.random() * 1000000);
-            const headers = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' };
+            const headers = { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' };
             
             let imageRes;
             let usedUrl;
             let modelUsed = "";
 
             try {
-                // TRY 1: FLUX (High Quality)
-                usedUrl = `https://pollinations.ai/p/${encodeURIComponent(cleanPrompt)}?width=1024&height=1024&seed=${seed}&model=flux&nologo=true`;
-                console.log(`[AI] Generating (Try 1 - Flux)...`);
+                // TRY 1: New Unified API (Flux)
+                usedUrl = `https://gen.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?width=1024&height=1024&seed=${seed}&model=flux&nologo=true`;
+                console.log(`[AI] Generating (Try 1 - Gen API)...`);
                 imageRes = await axios.get(usedUrl, { responseType: 'arraybuffer', headers, timeout: 50000 });
                 if (!imageRes.headers['content-type']?.startsWith('image/')) throw new Error("Invalid Content");
-                modelUsed = "Flux";
+                modelUsed = "Flux (Unified)";
             } catch (e1) {
-                console.warn("[AI] Flux failed, trying Stable Default...");
+                console.warn("[AI] Try 1 failed, trying Legacy API with shorter prompt...");
                 try {
-                    // TRY 2: STABLE DEFAULT
-                    usedUrl = `https://pollinations.ai/p/${encodeURIComponent(cleanPrompt)}?width=1024&height=1024&seed=${seed}&nologo=true`;
+                    // TRY 2: Legacy API - Shortening prompt to bypass some filters/limits
+                    const shortPrompt = cleanPrompt.substring(0, 300);
+                    usedUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(shortPrompt)}?width=1024&height=1024&seed=${seed}&nologo=true`;
+                    console.log(`[AI] Generating (Try 2 - Legacy API)...`);
                     imageRes = await axios.get(usedUrl, { responseType: 'arraybuffer', headers, timeout: 40000 });
                     if (!imageRes.headers['content-type']?.startsWith('image/')) throw new Error("Invalid Content");
-                    modelUsed = "Stable";
+                    modelUsed = "Stable (Legacy)";
                 } catch (e2) {
-                    console.warn("[AI] Stable failed, trying Ultra-Fast Turbo...");
+                    console.warn("[AI] Try 2 failed, trying Stable API (No Params)...");
                     try {
-                        // TRY 3: TURBO (Last Resort)
-                        usedUrl = `https://pollinations.ai/p/${encodeURIComponent(cleanPrompt)}?width=1024&height=1024&seed=${seed}&model=turbo&nologo=true`;
+                        // TRY 3: Simple Endpoint (No params, just prompt)
+                        const superShortPrompt = cleanPrompt.substring(0, 200);
+                        usedUrl = `https://pollinations.ai/p/${encodeURIComponent(superShortPrompt)}?seed=${seed}`;
+                        console.log(`[AI] Generating (Try 3 - Simple API)...`);
                         imageRes = await axios.get(usedUrl, { responseType: 'arraybuffer', headers, timeout: 30000 });
                         if (!imageRes.headers['content-type']?.startsWith('image/')) throw new Error("Invalid Content");
-                        modelUsed = "Turbo";
+                        modelUsed = "Turbo (Simple)";
                     } catch (e3) {
                         console.error("[AI] All models failed.");
-                        await waitMessage.edit({ content: '❌ **All AI models are currently busy or prompt is too complex. Try a shorter prompt.**' }).catch(()=>{});
+                        await waitMessage.edit({ content: '❌ **All AI models are currently busy or your prompt is being blocked by filters. Try a different/shorter description.**' }).catch(()=>{});
                         return;
                     }
                 }
             }
 
-            console.log(`[AI] Success! Image generated using ${modelUsed} model.`);
+            console.log(`[AI] Success! Image generated using ${modelUsed}.`);
             const attachment = new AttachmentBuilder(Buffer.from(imageRes.data), { name: 'image.png' });
 
             // Truncate URL for button if it's too long (Discord limit is 512)
