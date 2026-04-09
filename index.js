@@ -272,43 +272,36 @@ client.on('messageCreate', async message => {
             const seed = Math.floor(Math.random() * 1000000);
             let imageUrl = `https://pollinations.ai/p/${encodeURIComponent(englishPrompt)}?width=1024&height=1024&seed=${seed}&model=flux&nologo=true`;
             
-            console.log(`[AI] Generating (Primary): ${imageUrl}`);
+            console.log(`[AI] Generating (Primary - Flux): ${imageUrl}`);
 
             let imageRes;
-            try {
-                imageRes = await axios.get(imageUrl, { 
-                    responseType: 'arraybuffer',
-                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-                    timeout: 45000 // 45 seconds for first try
-                });
+            const headers = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' };
 
-                // Check if primary failed (not an image)
-                const contentType = imageRes.headers['content-type'];
-                if (!contentType || !contentType.startsWith('image/')) {
-                    throw new Error("Primary model returned non-image response");
-                }
-            } catch (primaryError) {
-                console.warn("[AI] Primary model failed or timed out, trying fallback...", primaryError.message);
+            try {
+                // TRY 1: FLUX (High Quality)
+                imageRes = await axios.get(imageUrl, { responseType: 'arraybuffer', headers, timeout: 50000 });
+                if (!imageRes.headers['content-type']?.startsWith('image/')) throw new Error("Not an image");
+            } catch (e1) {
+                console.warn("[AI] Flux failed, trying Stable Default...");
                 
-                // FALLBACK: Use more stable model or generic endpoint
-                imageUrl = `https://pollinations.ai/p/${encodeURIComponent(englishPrompt)}?width=1024&height=1024&seed=${seed}&nologo=true&enhance=true`;
-                console.log(`[AI] Generating (Fallback): ${imageUrl}`);
-                
+                // TRY 2: STABLE DEFAULT
+                imageUrl = `https://pollinations.ai/p/${encodeURIComponent(englishPrompt)}?width=1024&height=1024&seed=${seed}&nologo=true`;
                 try {
-                    imageRes = await axios.get(imageUrl, { 
-                        responseType: 'arraybuffer',
-                        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-                        timeout: 30000
-                    });
+                    imageRes = await axios.get(imageUrl, { responseType: 'arraybuffer', headers, timeout: 40000 });
+                    if (!imageRes.headers['content-type']?.startsWith('image/')) throw new Error("Not an image");
+                } catch (e2) {
+                    console.warn("[AI] Stable failed, trying Ultra-Fast Turbo...");
                     
-                    const contentTypeFallback = imageRes.headers['content-type'];
-                    if (!contentTypeFallback || !contentTypeFallback.startsWith('image/')) {
-                        throw new Error("Fallback model also failed");
+                    // TRY 3: TURBO (Last Resort)
+                    imageUrl = `https://pollinations.ai/p/${encodeURIComponent(englishPrompt)}?width=1024&height=1024&seed=${seed}&model=turbo&nologo=true`;
+                    try {
+                        imageRes = await axios.get(imageUrl, { responseType: 'arraybuffer', headers, timeout: 30000 });
+                        if (!imageRes.headers['content-type']?.startsWith('image/')) throw new Error("Not an image");
+                    } catch (e3) {
+                        console.error("[AI] All models failed.");
+                        await waitMessage.edit({ content: '❌ **All AI models are currently busy. Try a shorter prompt or wait a moment.**' }).catch(()=>{});
+                        return;
                     }
-                } catch (fallbackError) {
-                    console.error("[AI] Both models failed:", fallbackError.message);
-                    await waitMessage.edit({ content: '❌ **AI service is currently overloaded. Please try again in 1 minute.**' }).catch(()=>{});
-                    return;
                 }
             }
 
